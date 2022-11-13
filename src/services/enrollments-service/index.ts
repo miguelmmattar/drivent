@@ -1,11 +1,10 @@
 import { request } from "@/utils/request";
-import { notFoundError, requestError } from "@/errors";
+import { notFoundError } from "@/errors";
 import addressRepository, { CreateAddressParams } from "@/repositories/address-repository";
 import enrollmentRepository, { CreateEnrollmentParams } from "@/repositories/enrollment-repository";
 import { exclude } from "@/utils/prisma-utils";
 import { Address, Enrollment } from "@prisma/client";
 import { ViaCEPAddress } from "@/protocols";
-import httpStatus from "http-status";
 
 async function getAddressFromCEP(cep: string) {
   const result = await request.get(`https://viacep.com.br/ws/${cep}/json/`);
@@ -13,8 +12,18 @@ async function getAddressFromCEP(cep: string) {
   if (!result.data) {
     throw notFoundError();
   } 
+
+  if (result.data.erro) {
+    return result.data as ViaCEPAddress;
+  }
   
-  return result.data as ViaCEPAddress;
+  return {
+    logradouro: result.data.logradouro,
+    complemento: result.data.complemento,
+    bairro: result.data.bairro,
+    cidade: result.data.localidade,
+    uf: result.data.uf
+  } as ViaCEPAddress;
 }
 
 async function getOneWithAddressByUserId(userId: number): Promise<GetOneWithAddressByUserIdResult> {
@@ -48,9 +57,8 @@ async function createOrUpdateEnrollmentWithAddress(params: CreateOrUpdateEnrollm
 
   const verfiedAaddress = await getAddressFromCEP(address.cep);
 
-  if(verfiedAaddress.erro) {
-    return requestError(httpStatus.BAD_REQUEST, httpStatus["400_MESSAGE"]);
-  }
+  if(verfiedAaddress.erro) throw notFoundError();
+
   const newEnrollment = await enrollmentRepository.upsert(params.userId, enrollment, exclude(enrollment, "userId"));
 
   await addressRepository.upsert(newEnrollment.id, address, address);
